@@ -1,107 +1,52 @@
-async function recognize(base64, lang, options) {
-    const { config, utils } = options;
-    const { tauriFetch, cacheDir, readBinaryFile, http } = utils;
-    let { formula, img_correction, apikey } = config;
-
-    if (apikey === undefined || apikey.length === 0 || apikey === "") {
-        throw Error("apikey not found");
-    }
-    if (formula === undefined || formula.length === 0) {
-        formula = "0";
-    }
-    if (img_correction === undefined || img_correction.length === 0) {
-        img_correction = "0";
-    }
-
-    let Base_URL = "https://api.doc2x.noedgeai.com/api";
-
-    // Refresh key first
-    let key = await tauriFetch(`${Base_URL}/token/refresh`, {
-        method: "POST",
-        headers: {
-            "Authorization": `Bearer ${apikey}`
-        },
-    });
-    let renewkey = "";
-
-    if (key.ok) {
-        try {
-            renewkey = key.data.data.token;
-        }
-        catch (error) {
-            throw Error(`Get API key error: ${error}: ${JSON.stringify(key)}`)
-        }
-    } else {
-        throw Error(JSON.stringify(key));
-    }
-
-    if (renewkey === "" || renewkey === undefined) {
-        throw Error("renewkey not found");
-    }
-
-    let file_path = `${cacheDir}pot_screenshot_cut.png`;
-    let fileContent = await readBinaryFile(file_path);
-
-    // Upload image and get uuid
-    let uuid_data = await tauriFetch(`${Base_URL}/platform/async/img`, {
-        method: "POST",
-        headers: {
-            "Authorization": `Bearer ${renewkey}`,
-            'content-type': 'multipart/form-data',
-        },
-        body: http.Body.form(
-            {
-                file: {
-                    file: fileContent,
-                    mime: 'image/png',
-                    fileName: 'pot_screenshot_cut.png',
-                },
-                img_correction: img_correction,
-                equation: formula,
-            }
-        )
-    }
+/**
+ * Pot Recognize Plugin – Doc2X API v2 · 最终修正版 (v1.4)
+ * 关键点：先把 res.data 解析成对象，再取 pages[0].md
+ */
+async function recognize(base64, _lang, { config, utils }) {
+    /* ---------- 工具 ---------- */
+    const fetch = utils.network?.fetch ?? utils.http?.fetch ?? utils.tauriFetch;
+    const Body  = utils.network?.Body  ?? utils.http?.Body;
+    if (!fetch || !Body) throw Error("找不到网络请求工具");
+  
+    /* ---------- 校验 Key ---------- */
+    const apikey = config.apikey?.trim();
+    if (!apikey) throw Error("请先在插件设置里填写 Doc2X API Key");
+  
+    /* ---------- Base64 → Uint8Array ---------- */
+    const bin = atob(base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  
+    /* ---------- 发送 OCR 请求 ---------- */
+    const res = await fetch(
+      "https://v2.doc2x.noedgeai.com/api/v2/parse/img/layout",
+      { method: "POST",
+        headers: { Authorization: `Bearer ${apikey}` },
+        body: Body.bytes(bytes),
+        responseType: 2,          // 期望 JSON，但某些 Pot 版本仍会返回字符串
+        timeout: 60000 }
     );
-    let uuid = "";
-    if (uuid_data.ok) {
-        try {
-            uuid = uuid_data.data.data.uuid;
-        }
-        catch (error) {
-            throw Error(`Error to upload image: ${error}: ${JSON.stringify(uuid_data)}`)
-        }
-    } else {
-        throw Error(JSON.stringify(uuid_data.data));
+  
+    /* ---------- HTTP 级错误 ---------- */
+    if (!res.ok) {
+      throw Error(`HTTP ${res.status}: ${JSON.stringify(res.data ?? {})}`);
     }
-    if (uuid === "") {
-        throw Error("uuid not found");
+  
+    /* ---------- 解析 res.data ---------- */
+    let d = res.data;
+    if (typeof d === "string") {
+      try { d = JSON.parse(d); }
+      catch(e) { throw Error(`服务器返回非 JSON: ${d.slice(0,120)}…`); }
     }
-
-
-    // A loop waiting for the result
-    while (true) {
-        let res = await tauriFetch(`${Base_URL}/platform/async/status?uuid=${uuid}`, {
-            method: "GET",
-            headers: {
-                "Authorization": `Bearer ${renewkey}`
-            }
-        });
-
-        if (res.ok) {
-            const status = res.data.data.status;
-            if (status === "success") {
-                let text = "";
-                text = res.data.data.result.pages[0].md;
-                return text;
-            } else if (status === "processing" || status === "ready") {
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            } else if (status === "pages limit exceeded") {
-                throw Error(JSON.stringify("pages limit exceeded"));
-            } else {
-                throw Error(JSON.stringify(res.data));
-            }
-        } else {
-            throw Error(JSON.stringify(res));
-        }
+  
+    /* ---------- 拿结果 ---------- */
+    const page = d?.data?.result?.pages?.[0];
+    const md   = page?.md;
+  
+    if (md !== undefined && md !== null) {
+      return md;                       // 成功：把 Markdown 返回给 Pot
     }
-}
+  
+    /* ---------- 其它一律报错 ---------- */
+    throw Error(`Doc2X 返回异常：${JSON.stringify(d)}`);
+  }

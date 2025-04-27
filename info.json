@@ -1,31 +1,13 @@
 {
-  "id": "plugin.com.pot-app.doc2x",
+  "id": "plugin.com.pot-app.doc2x.v2",
   "plugin_type": "recognize",
   "icon": "icon.png",
-  "display": "Doc2X",
-  "homepage": "https://github.com/Menghuan1918/pot-app-recognize-plugin-doc2x",
+  "display": "Doc2X V2 图片识别",
+  "homepage": "https://github.com/konbakuyomu/pot-app-recognize-plugin-doc2x", 
   "needs": [
     {
-      "key": "formula",
-      "display": "纯公式模式",
-      "type": "select",
-      "options": {
-        "0": "OFF",
-        "1": "ON"
-      }
-    },
-    {
-      "key": "img_correction",
-      "display": "图片校正",
-      "type": "select",
-      "options": {
-        "0": "OFF",
-        "1": "ON"
-      }
-    },
-    {
       "key": "apikey",
-      "display": "Api Key",
+      "display": "Doc2X API Key (sk-xxx)", 
       "type": "input"
     }
   ],
